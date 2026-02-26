@@ -945,6 +945,8 @@ def show_usage():
     print("  sspt=X            Shadowsocks-2022 (端口)")
     print("  vmpt=X            Vmess-ws (端口)")
     print("  sopt=X            Socks5 (端口)")
+    print("  DOMAIN=域名        【仅容器类docker】启用vless-ws-tls (服务器域名)")
+    print("  uuid=UUID          指定UUID (用于固定密码)")
     print("")
     print("示例:")
     print("  hypt=443 python app.py install    # 安装 Hysteria2 协议")
@@ -996,6 +998,8 @@ def install_singbox(
     vmpt: str = "",
     sopt: str = "",
     warp: str = "sx",
+    DOMAIN: str = "",
+    uuid: str = "",
 ) -> None:
     """
     安装 Sing-box 内核
@@ -1009,6 +1013,8 @@ def install_singbox(
         vmpt: Vmess-ws 端口
         sopt: Socks5 端口
         warp: WARP 模式
+        DOMAIN: 服务器域名，启用 vless-ws-tls
+        uuid: 自定义 UUID
     """
     print("=========启用Sing-box内核=========")
 
@@ -1115,7 +1121,7 @@ def install_singbox(
     os.makedirs(keys_dir, exist_ok=True)
 
     # 生成或获取 UUID
-    uuid_val = get_uuid()
+    uuid_val = get_uuid(uuid)
     write_file(os.path.join(AGSBX_DATA, "common", "uuid"), uuid_val)
     print(f"UUID: {uuid_val}")
 
@@ -1186,16 +1192,14 @@ def install_singbox(
     inbounds = []
     port_hy2 = 0
 
-    # 如果没有指定任何协议端口，默认安装所有协议（随机端口）
-    if not any([hypt, tupt, anpt, arpt, sspt, vmpt, sopt]):
-        print("未指定协议端口，默认安装所有协议（随机端口）")
-        hypt = "auto"
-        tupt = "auto"
-        anpt = "auto"
-        arpt = "auto"
-        sspt = "auto"
-        vmpt = "auto"
-        sopt = "auto"
+    # 如果没有指定任何协议端口，提示用户并退出
+    if not any([hypt, tupt, anpt, arpt, sspt, vmpt, sopt, DOMAIN]):
+        print("未指定任何协议端口，请至少指定一个协议端口")
+        print("用法:")
+        print("  hypt=端口 python app.py install    # 安装 Hysteria2 协议")
+        print("  tupt=端口 python app.py install    # 安装 Tuic 协议")
+        print("  或者同时指定多个协议")
+        return
 
     # Hysteria2 配置
     if hypt:
@@ -1387,6 +1391,34 @@ def install_singbox(
                 "users": [{"username": uuid_val, "password": uuid_val}],
             }
         )
+
+    # Vless-ws-tls 配置
+    if DOMAIN:
+        port_vl_ws_tls = generate_rand_port(os.path.join(SB_DATA, "port_vl_ws_tls"), "auto")
+        print(f"Vless-ws-tls 端口: {port_vl_ws_tls}")
+        print(f"服务器域名: {DOMAIN}")
+        inbounds.append(
+            {
+                "type": "vless",
+                "tag": "vless-ws-tls-sb",
+                "listen": "::",
+                "listen_port": port_vl_ws_tls,
+                "users": [{"uuid": uuid_val}],
+                "transport": {
+                    "type": "ws",
+                    "path": f"/{uuid_val}-vl",
+                    "max_early_data": 2048,
+                    "early_data_header_name": "Sec-WebSocket-Protocol",
+                },
+                "tls": {
+                    "enabled": True,
+                    "server_name": DOMAIN,
+                    "certificate_path": cert_path,
+                    "key_path": private_key_path,
+                },
+            }
+        )
+        write_file(os.path.join(SB_DATA, "domain"), DOMAIN)
 
     config["inbounds"] = inbounds
 
@@ -1747,6 +1779,33 @@ def show_links() -> None:
         print(f"密码: {uuid_val}")
         print("")
 
+    # Vless-ws-tls
+    port_vl_ws_tls_file = os.path.join(SB_DATA, "port_vl_ws_tls")
+    domain_file = os.path.join(SB_DATA, "domain")
+    if os.path.exists(port_vl_ws_tls_file) and os.path.exists(domain_file):
+        port_vl_ws_tls = read_file(port_vl_ws_tls_file)
+        domain_val = read_file(domain_file)
+        print(f"【Vless-ws-tls】端口: {port_vl_ws_tls}")
+        print(f"服务器域名: {domain_val}")
+        vl_config = {
+            "v": "2",
+            "ps": f"{sxname}vless-ws-tls-sb-{hostname}",
+            "add": domain_val,
+            "port": port_vl_ws_tls,
+            "id": uuid_val,
+            "aid": "0",
+            "scy": "auto",
+            "net": "ws",
+            "type": "none",
+            "host": domain_val,
+            "path": f"/{uuid_val}-vl",
+            "tls": "tls",
+            "sni": domain_val,
+        }
+        vl_link = f"vless://{uuid_val}@{domain_val}:{port_vl_ws_tls}?path=/{uuid_val}-vl&security=tls&encryption=none&host={domain_val}&type=ws&sni={domain_val}#{sxname}vless-ws-tls-sb-{hostname}"
+        print(vl_link)
+        print("")
+
 
 def uninstall_singbox() -> None:
     """卸载 Sing-box"""
@@ -1777,7 +1836,7 @@ def parse_env_vars() -> Dict[str, str]:
     result = {}
 
     # 从环境变量中获取参数
-    env_vars = ["hypt", "tupt", "anpt", "arpt", "sspt", "vmpt", "sopt", "warp"]
+    env_vars = ["hypt", "tupt", "anpt", "arpt", "sspt", "vmpt", "sopt", "warp", "DOMAIN", "uuid"]
 
     for var in env_vars:
         value = os.environ.get(var, "")
@@ -1814,6 +1873,8 @@ def main():
             vmpt=protocol_args.get("vmpt", ""),
             sopt=protocol_args.get("sopt", ""),
             warp=protocol_args.get("warp", "sx"),
+            DOMAIN=protocol_args.get("DOMAIN", ""),
+            uuid=protocol_args.get("uuid", ""),
         )
     elif command in ("upsingbox", "ups", "u"):
         update_singbox()

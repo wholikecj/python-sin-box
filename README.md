@@ -41,6 +41,8 @@ app-data/              # 数据目录
 | `vmpt` | Vmess-ws | 8081, 8080, 10000-65535 | Vmess-WebSocket 端口 |
 | `sopt` | Socks5 | 7890, 1080, 10000-65535 | Socks5 端口 |
 | `warp` | WARP 模式 | - | 出站模式 |
+| `uuid` | UUID | - | 指定 UUID (用于固定密码) |
+| `DOMAIN` | 域名 | - | 【仅容器类docker】启用vless-ws-tls (服务器域名) |
 
 ## 端口注意事项
 
@@ -101,9 +103,6 @@ sopt=7890 python3 app.py install
 ### 安装（随机端口）
 
 ```bash
-# 不指定端口时，默认安装所有协议（随机端口）
-python3 app.py install
-
 # 指定 "auto" 使用随机端口
 hypt=auto python3 app.py install
 
