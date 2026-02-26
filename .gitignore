@@ -16,3 +16,5 @@ build/
 coverage/
 INTEGRATION_PLAN.md
 argosbx.sh
+yxm/
+__pycache__/
