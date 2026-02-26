@@ -1406,7 +1406,7 @@ def install_singbox(
                 "tag": "vless-ws-tls-sb",
                 "listen": "::",
                 "listen_port": port_vl_ws_tls,
-                "users": [{"uuid": uuid_val}],
+                "users": [{"uuid": uuid_val, "flow": "xtls-rprx-vision"}],
                 "transport": {
                     "type": "ws",
                     "path": f"/{uuid_val}-vl",
@@ -1418,6 +1418,7 @@ def install_singbox(
                     "server_name": DOMAIN,
                     "certificate_path": cert_path,
                     "key_path": private_key_path,
+                    "alpn": ["h3", "http/1.1"],
                 },
             }
         )
@@ -1824,17 +1825,11 @@ class NodeRequestHandler(BaseHTTPRequestHandler):
 
 
 def start_http_server(port: int, domain: str, uuid_val: str) -> None:
-    vless_url = ""
-    if domain:
-        vless_url = f"vless://{uuid_val}@{domain}:443?path=/{uuid_val}-vl&security=tls&encryption=none&host={domain}&type=ws&sni={domain}#vless-ws-tls"
-
-    NodeRequestHandler.vless_url = vless_url
+    NodeRequestHandler.vless_url = ""
 
     try:
         server = HTTPServer(("0.0.0.0", port), NodeRequestHandler)
         print(f"✅ HTTP 服务器已启动在端口 {port}")
-        if vless_url:
-            print(f"💣Vless-ws-tls节点分享:\n{vless_url}")
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
     except Exception as e:
