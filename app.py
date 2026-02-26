@@ -1582,7 +1582,14 @@ def install_singbox(
         os.path.exists("/.dockerenv")
         or os.path.exists("/run/.containerenv")
         or os.path.exists("/.dockerinit")
+        or os.environ.get("DOCKER_CONTAINER", "").lower() in ("1", "true", "yes")
+        or os.environ.get("IN_CONTAINER", "").lower() in ("1", "true", "yes")
     )
+    
+    print(f"[DEBUG] 容器环境检测: in_container={in_container}")
+    print(f"[DEBUG] /.dockerenv exists: {os.path.exists('/.dockerenv')}")
+    print(f"[DEBUG] /.dockerinit exists: {os.path.exists('/.dockerinit')}")
+    print(f"[DEBUG] DOCKER_CONTAINER: {os.environ.get('DOCKER_CONTAINER', 'not set')}")
 
     # 容器环境中启动 HTTP 服务器和生成节点信息
     if in_container:
