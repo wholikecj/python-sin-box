@@ -1542,6 +1542,29 @@ def install_singbox(
     # 显示节点信息
     show_links()
 
+    # 检测是否在容器环境中
+    in_container = (
+        os.path.exists("/.dockerenv")
+        or os.path.exists("/run/.containerenv")
+        or os.path.exists("/.dockerinit")
+    )
+
+    # 在容器中，保持主进程运行以防止容器退出
+    if in_container:
+        print("\n========== 容器环境保持运行 ==========")
+        print("进程在后台持续运行中...")
+        print(f"日志文件: {os.path.join(AGSBX_HOME, 'sb.log')}")
+        print("如需停止服务，请手动 kill 进程")
+        print("======================================\n")
+        
+        import time
+        while True:
+            # 每分钟检查一次进程是否还在运行
+            time.sleep(60)
+            if not check_process_running("sing-box"):
+                print("警告: sing-box 进程已退出，容器即将退出")
+                break
+
 
 def update_singbox() -> None:
     """更新 Sing-box 内核"""
