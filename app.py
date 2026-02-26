@@ -1588,10 +1588,18 @@ def install_singbox(
     if in_container:
         server_port = int(os.environ.get("PORT", "3000"))
         server_domain = os.environ.get("DOMAIN", "")
+        
+        # 确保 server_ip 已定义
+        if 'server_ip' not in dir() or not server_ip:
+            server_ip = get_server_ip()
+        
+        print(f"[DEBUG] HTTP 服务器配置: port={server_port}, domain={server_domain}, ip={server_ip}")
 
         nodes_content = generate_nodes_text(uuid_val, server_ip, server_domain)
         nodes_file = os.path.join(AGSBX_DATA, "nodes.txt")
         write_file(nodes_file, nodes_content)
+        
+        print(f"[DEBUG] 节点文件已生成: {nodes_file}")
 
         start_http_server(server_port, server_domain, uuid_val)
 
@@ -1757,6 +1765,8 @@ def generate_nodes_text(uuid_val: str, server_ip: str, domain: str = "") -> str:
 
 
 class NodeRequestHandler(BaseHTTPRequestHandler):
+    vless_url = ""
+
     def do_GET(self):
         if self.path == "/":
             self.send_response(200)
@@ -1769,8 +1779,8 @@ class NodeRequestHandler(BaseHTTPRequestHandler):
             if os.path.exists(nodes_file):
                 with open(nodes_file, "r", encoding="utf-8") as f:
                     content = f.read()
-                if hasattr(self.server, 'vless_url') and self.server.vless_url:
-                    content = f"{self.server.vless_url}\n{content}"
+                if self.vless_url:
+                    content = f"{self.vless_url}\n{content}"
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain; charset=utf-8")
                 self.end_headers()
@@ -1797,13 +1807,10 @@ def start_http_server(port: int, domain: str, uuid_val: str) -> None:
     if domain:
         vless_url = f"vless://{uuid_val}@{domain}:443?path=/{uuid_val}-vl&security=tls&encryption=none&host={domain}&type=ws&sni={domain}#vless-ws-tls"
 
-    class CustomHandler(NodeRequestHandler):
-        pass
-
-    CustomHandler.server = type('Server', (), {'vless_url': vless_url})()
+    NodeRequestHandler.vless_url = vless_url
 
     try:
-        server = HTTPServer(("0.0.0.0", port), CustomHandler)
+        server = HTTPServer(("0.0.0.0", port), NodeRequestHandler)
         print(f"✅ HTTP 服务器已启动在端口 {port}")
         if vless_url:
             print(f"💣Vless-ws-tls节点分享:\n{vless_url}")
