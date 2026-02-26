@@ -1586,22 +1586,36 @@ def install_singbox(
 
     # 容器环境中启动 HTTP 服务器和生成节点信息
     if in_container:
-        server_port = int(os.environ.get("PORT", "3000"))
+        try:
+            server_port = int(os.environ.get("PORT", "3000"))
+        except (ValueError, TypeError):
+            server_port = 3000
+            print("[DEBUG] PORT 环境变量解析失败，使用默认端口 3000")
+        
         server_domain = os.environ.get("DOMAIN", "")
         
         # 确保 server_ip 已定义
         if 'server_ip' not in dir() or not server_ip:
-            server_ip = get_server_ip()
+            try:
+                server_ip = get_server_ip()
+            except Exception as e:
+                print(f"[DEBUG] 获取服务器 IP 失败: {e}")
+                server_ip = "127.0.0.1"
         
         print(f"[DEBUG] HTTP 服务器配置: port={server_port}, domain={server_domain}, ip={server_ip}")
 
-        nodes_content = generate_nodes_text(uuid_val, server_ip, server_domain)
-        nodes_file = os.path.join(AGSBX_DATA, "nodes.txt")
-        write_file(nodes_file, nodes_content)
-        
-        print(f"[DEBUG] 节点文件已生成: {nodes_file}")
+        try:
+            nodes_content = generate_nodes_text(uuid_val, server_ip, server_domain)
+            nodes_file = os.path.join(AGSBX_DATA, "nodes.txt")
+            write_file(nodes_file, nodes_content)
+            print(f"[DEBUG] 节点文件已生成: {nodes_file}")
+        except Exception as e:
+            print(f"[DEBUG] 生成节点文件失败: {e}")
 
-        start_http_server(server_port, server_domain, uuid_val)
+        try:
+            start_http_server(server_port, server_domain, uuid_val)
+        except Exception as e:
+            print(f"[DEBUG] 启动 HTTP 服务器失败: {e}")
 
     # 在容器中，保持主进程运行以防止容器退出
     if in_container:
