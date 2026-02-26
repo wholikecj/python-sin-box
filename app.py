@@ -614,29 +614,64 @@ def install_systemd_service(
     # 非 root 用户、容器环境、或 systemd 不可用时，使用后台运行
     if os.geteuid() != 0 or in_container or not systemd_available:
         try:
-            # 使用 nohup 保护进程，确保脚本退出后进程仍然运行
-            cmd = f"nohup {exec_start} > /dev/null 2>&1 &"
+            # 定义日志文件路径
+            log_file = os.path.join(AGSBX_HOME, "sb.log")
+            
+            # 使用 nohup 保护进程，输出重定向到日志文件
+            cmd = f"nohup {exec_start} >> {log_file} 2>&1 &"
+            print(f"[DEBUG] 启动命令: {cmd}")
+            print(f"[DEBUG] 日志文件: {log_file}")
+            
             process = subprocess.Popen(
                 cmd,
                 shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 start_new_session=True,
                 cwd=AGSBX_HOME,
             )
-            print(f"后台进程已启动 (PID: {process.pid})")
+            print(f"[DEBUG] Popen 返回的 PID: {process.pid}")
 
             # 等待一下确认进程启动
             import time
+            time.sleep(2)
 
-            time.sleep(1)
+            # 检查 nohup 进程本身状态
             if process.poll() is None:
-                print("进程运行中")
+                print("[DEBUG] nohup 命令已执行，进程处于运行状态")
             else:
-                print(f"警告: 进程可能已退出，返回码: {process.returncode}")
+                stdout, stderr = process.communicate()
+                print(f"[DEBUG] nohup 命令已退出，返回码: {process.returncode}")
+                if stdout:
+                    print(f"[DEBUG] stdout: {stdout.decode() if isinstance(stdout, bytes) else stdout}")
+                if stderr:
+                    print(f"[DEBUG] stderr: {stderr.decode() if isinstance(stderr, bytes) else stderr}")
+
+            # 使用 pgrep 检查 sing-box 进程是否真的在运行
+            check_cmd = ["pgrep", "-f", "sing-box run"]
+            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            if result.stdout:
+                pids = result.stdout.strip().split("\n")
+                print(f"[DEBUG] 找到 sing-box 进程 PID: {pids}")
+                print("✅ 后台进程运行中")
+            else:
+                print("[DEBUG] 未找到 sing-box 进程")
+                print("⚠️ 警告: 进程可能未启动成功")
+
+            # 显示日志文件内容（如果存在）
+            if os.path.exists(log_file):
+                with open(log_file, "r") as f:
+                    log_content = f.read()
+                if log_content:
+                    print(f"[DEBUG] 日志内容:\n{log_content[:500]}")
+                else:
+                    print("[DEBUG] 日志文件为空")
+            
             return True
         except Exception as e:
             print(f"启动进程失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     if subprocess.run(["pidof", "systemd"], capture_output=True).returncode == 0:
@@ -691,19 +726,57 @@ need net
 
     # 默认使用后台运行
     try:
-        # 使用 nohup 保护进程，确保脚本退出后进程仍然运行
-        cmd = f"nohup {exec_start} > /dev/null 2>&1 &"
+        # 定义日志文件路径
+        log_file = os.path.join(AGSBX_HOME, "sb.log")
+        
+        # 使用 nohup 保护进程，输出重定向到日志文件
+        cmd = f"nohup {exec_start} >> {log_file} 2>&1 &"
+        print(f"[DEBUG] 默认启动命令: {cmd}")
+        print(f"[DEBUG] 日志文件: {log_file}")
+        
         process = subprocess.Popen(
             cmd,
             shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             start_new_session=True,
         )
-        print(f"后台进程已启动 (PID: {process.pid})")
+        print(f"[DEBUG] Popen 返回的 PID: {process.pid}")
+
+        import time
+        time.sleep(2)
+
+        # 检查 nohup 进程状态
+        if process.poll() is None:
+            print("[DEBUG] nohup 命令已执行，进程处于运行状态")
+        else:
+            stdout, stderr = process.communicate()
+            print(f"[DEBUG] nohup 命令已退出，返回码: {process.returncode}")
+
+        # 使用 pgrep 检查 sing-box 进程
+        check_cmd = ["pgrep", "-f", "sing-box run"]
+        result = subprocess.run(check_cmd, capture_output=True, text=True)
+        if result.stdout:
+            pids = result.stdout.strip().split("\n")
+            print(f"[DEBUG] 找到 sing-box 进程 PID: {pids}")
+            print("✅ 后台进程运行中")
+        else:
+            print("[DEBUG] 未找到 sing-box 进程")
+            print("⚠️ 警告: 进程可能未启动成功")
+
+        if os.path.exists(log_file):
+            with open(log_file, "r") as f:
+                log_content = f.read()
+            if log_content:
+                print(f"[DEBUG] 日志内容:\n{log_content[:500]}")
+            else:
+                print("[DEBUG] 日志文件为空")
+        
         return True
     except Exception as e:
         print(f"启动进程失败: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
