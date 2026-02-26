@@ -1194,20 +1194,36 @@ def install_singbox(
         short_id_file = os.path.join(keys_dir, "short_id")
 
         if not os.path.exists(private_key_file):
-            rc, output, _ = run_command([SB_CORE, "generate", "reality-keypair"])
-            if rc == 0:
-                key_pair = json.loads(output)
-                private_key_s = key_pair.get("private_key", "")
-                public_key_s = key_pair.get("public_key", "")
+            rc, output, stderr = run_command([SB_CORE, "generate", "reality-keypair"])
+            if rc == 0 and output.strip():
+                key_pair = {}
+                for line in output.strip().split('\n'):
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        key_name = key.strip().lower().replace('privatekey', 'private_key').replace('publickey', 'public_key')
+                        key_pair[key_name] = value.strip()
+            elif rc == 0 and stderr.strip():
+                key_pair = {}
+                for line in stderr.strip().split('\n'):
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        key_name = key.strip().lower().replace('privatekey', 'private_key').replace('publickey', 'public_key')
+                        key_pair[key_name] = value.strip()
+            else:
+                print("错误: 生成 Reality 密钥对失败")
+                print(f"返回码: {rc}, stdout: {output}, stderr: {stderr}")
+                raise RuntimeError("无法生成 Reality 密钥对")
+            private_key_s = key_pair.get("private_key", "")
+            public_key_s = key_pair.get("public_key", "")
 
-                rc, short_id_out, _ = run_command(
-                    [SB_CORE, "generate", "rand", "--hex", "4"]
-                )
-                short_id_s = short_id_out.strip() if short_id_out else "0000"
+            rc, short_id_out, _ = run_command(
+                [SB_CORE, "generate", "rand", "--hex", "4"]
+            )
+            short_id_s = short_id_out.strip() if short_id_out else "0000"
 
-                write_file(private_key_file, private_key_s)
-                write_file(public_key_file, public_key_s)
-                write_file(short_id_file, short_id_s)
+            write_file(private_key_file, private_key_s)
+            write_file(public_key_file, public_key_s)
+            write_file(short_id_file, short_id_s)
 
         private_key_s = read_file(private_key_file)
         public_key_s = read_file(public_key_file)
