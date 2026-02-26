@@ -1406,7 +1406,7 @@ def install_singbox(
                 "tag": "vless-ws-tls-sb",
                 "listen": "::",
                 "listen_port": port_vl_ws_tls,
-                "users": [{"id": uuid_val}],
+                "users": [{"uuid": uuid_val}],
                 "transport": {
                     "type": "ws",
                     "path": f"/{uuid_val}-vl",
