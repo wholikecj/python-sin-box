@@ -614,9 +614,10 @@ def install_systemd_service(
     # 非 root 用户、容器环境、或 systemd 不可用时，使用后台运行
     if os.geteuid() != 0 or in_container or not systemd_available:
         try:
-            # 直接启动进程，使用 start_new_session 创建新会话
+            # 使用 nohup 保护进程，确保脚本退出后进程仍然运行
+            cmd = f"nohup {exec_start} > /dev/null 2>&1 &"
             process = subprocess.Popen(
-                exec_start,
+                cmd,
                 shell=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -690,8 +691,10 @@ need net
 
     # 默认使用后台运行
     try:
+        # 使用 nohup 保护进程，确保脚本退出后进程仍然运行
+        cmd = f"nohup {exec_start} > /dev/null 2>&1 &"
         process = subprocess.Popen(
-            exec_start,
+            cmd,
             shell=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
