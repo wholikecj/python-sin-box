@@ -17,8 +17,10 @@ import re
 import random
 import base64
 import shutil
+import threading
 from typing import Dict, Any
 import uuid as uuid_lib
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # 全局变量定义
 AGSBX_HOME = os.path.join(os.path.expanduser("~"), "app")
@@ -1193,7 +1195,7 @@ def install_singbox(
     port_hy2 = 0
 
     # 如果没有指定任何协议端口，提示用户并退出
-    if not any([hypt, tupt, anpt, arpt, sspt, vmpt, sopt, DOMAIN]):
+    if not any([hypt, tupt, anpt, arpt, sspt, vmpt, sopt, DOMAIN, uuid]):
         print("未指定任何协议端口，请至少指定一个协议端口")
         print("用法:")
         print("  hypt=端口 python app.py install    # 安装 Hysteria2 协议")
@@ -1394,7 +1396,8 @@ def install_singbox(
 
     # Vless-ws-tls 配置
     if DOMAIN:
-        port_vl_ws_tls = generate_rand_port(os.path.join(SB_DATA, "port_vl_ws_tls"), "auto")
+        port_vl_ws_tls = 443
+        write_file(os.path.join(SB_DATA, "port_vl_ws_tls"), "443")
         print(f"Vless-ws-tls 端口: {port_vl_ws_tls}")
         print(f"服务器域名: {DOMAIN}")
         inbounds.append(
@@ -1403,7 +1406,7 @@ def install_singbox(
                 "tag": "vless-ws-tls-sb",
                 "listen": "::",
                 "listen_port": port_vl_ws_tls,
-                "users": [{"uuid": uuid_val}],
+                "users": [{"id": uuid_val}],
                 "transport": {
                     "type": "ws",
                     "path": f"/{uuid_val}-vl",
@@ -1581,9 +1584,22 @@ def install_singbox(
         or os.path.exists("/.dockerinit")
     )
 
+    # 容器环境中启动 HTTP 服务器和生成节点信息
+    if in_container:
+        server_port = int(os.environ.get("PORT", "3000"))
+        server_domain = os.environ.get("DOMAIN", "")
+
+        nodes_content = generate_nodes_text(uuid_val, server_ip, server_domain)
+        nodes_file = os.path.join(AGSBX_DATA, "nodes.txt")
+        write_file(nodes_file, nodes_content)
+
+        start_http_server(server_port, server_domain, uuid_val)
+
     # 在容器中，保持主进程运行以防止容器退出
     if in_container:
         print("\n========== 容器环境保持运行 ==========")
+        print(f"HTTP 服务器运行在端口: {server_port}")
+        print(f"访问节点信息: http://服务器IP:{server_port}/{uuid_val}")
         print("进程在后台持续运行中...")
         print(f"日志文件: {os.path.join(AGSBX_HOME, 'sb.log')}")
         print("如需停止服务，请手动 kill 进程")
@@ -1664,6 +1680,137 @@ def singbox_status() -> None:
         print("状态: 运行中")
     else:
         print("状态: 未运行")
+
+
+def generate_nodes_text(uuid_val: str, server_ip: str, domain: str = "") -> str:
+    lines = []
+    hostname = get_hostname()
+    sxname = read_file(os.path.join(AGSBX_DATA, "common", "name"))
+
+    if domain:
+        vl_link = f"vless://{uuid_val}@{domain}:443?path=/{uuid_val}-vl&security=tls&encryption=none&host={domain}&type=ws&sni={domain}#{sxname}vless-ws-tls-sb-{hostname}"
+        lines.append(vl_link)
+
+    port_ss_file = os.path.join(SB_DATA, "port_ss")
+    if os.path.exists(port_ss_file):
+        port_ss = read_file(port_ss_file)
+        sskey = read_file(os.path.join(SB_DATA, "sskey"))
+        ss_link = f"ss://2022-blake3-aes-128-gcm:{sskey}@{server_ip}:{port_ss}#{sxname}Shadowsocks-2022-{hostname}"
+        lines.append(ss_link)
+
+    port_vm_ws_file = os.path.join(SB_DATA, "port_vm_ws")
+    if os.path.exists(port_vm_ws_file):
+        port_vm_ws = read_file(port_vm_ws_file)
+        vm_config = {
+            "v": "2",
+            "ps": f"{sxname}vm-sb-{hostname}",
+            "add": server_ip,
+            "port": port_vm_ws,
+            "id": uuid_val,
+            "aid": "0",
+            "scy": "auto",
+            "net": "ws",
+            "type": "none",
+            "host": "www.bing.com",
+            "path": f"/{uuid_val}-vm",
+            "tls": "",
+        }
+        vm_link = f"vmess://{base64.b64encode(json.dumps(vm_config).encode()).decode()}"
+        lines.append(vm_link)
+
+    port_an_file = os.path.join(SB_DATA, "port_an")
+    if os.path.exists(port_an_file):
+        port_an = read_file(port_an_file)
+        an_link = f"anytls://{uuid_val}@{server_ip}:{port_an}?insecure=1&allowInsecure=1#{sxname}anytls-{hostname}"
+        lines.append(an_link)
+
+    port_ar_file = os.path.join(SB_DATA, "port_ar")
+    if os.path.exists(port_ar_file):
+        port_ar = read_file(port_ar_file)
+        ym_vl_re = read_file(os.path.join(AGSBX_DATA, "common", "ym_vl_re"))
+        keys_dir = os.path.join(SB_DATA, "keys")
+        public_key_s = read_file(os.path.join(keys_dir, "public_key"))
+        short_id_s = read_file(os.path.join(keys_dir, "short_id"))
+        ar_link = f"anytls://{uuid_val}@{server_ip}:{port_ar}?security=reality&sni={ym_vl_re}&fp=chrome&pbk={public_key_s}&sid={short_id_s}&type=tcp&headerType=none#{sxname}any-reality-{hostname}"
+        lines.append(ar_link)
+
+    port_hy2_file = os.path.join(SB_DATA, "port_hy2")
+    if os.path.exists(port_hy2_file):
+        port_hy2 = read_file(port_hy2_file)
+        hy2_link = f"hysteria2://{uuid_val}@{server_ip}:{port_hy2}?security=tls&alpn=h3&insecure=1&sni=www.bing.com#{sxname}hy2-{hostname}"
+        lines.append(hy2_link)
+
+    port_tu_file = os.path.join(SB_DATA, "port_tu")
+    if os.path.exists(port_tu_file):
+        port_tu = read_file(port_tu_file)
+        tuic5_link = f"tuic://{uuid_val}:{uuid_val}@{server_ip}:{port_tu}?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=www.bing.com&allow_insecure=1&allowInsecure=1#{sxname}tuic-{hostname}"
+        lines.append(tuic5_link)
+
+    port_so_file = os.path.join(SB_DATA, "port_so")
+    if os.path.exists(port_so_file):
+        port_so = read_file(port_so_file)
+        lines.append(f"Socks5 端口: {port_so}")
+        lines.append(f"用户名: {uuid_val}")
+        lines.append(f"密码: {uuid_val}")
+
+    return "\n".join(lines)
+
+
+class NodeRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            msg = "🟢恭喜！部署成功！欢迎使用甬哥YGkkk-ArgoSBX小钢炮脚本💣 【当前版本V25.11.20】\n\n查看节点信息路径：/你的uuid（已设uuid变量时）或者/subuuid（未设uuid变量时）"
+            self.wfile.write(msg.encode("utf-8"))
+        elif self.path.startswith("/"):
+            nodes_file = os.path.join(AGSBX_DATA, "nodes.txt")
+            if os.path.exists(nodes_file):
+                with open(nodes_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if hasattr(self.server, 'vless_url') and self.server.vless_url:
+                    content = f"{self.server.vless_url}\n{content}"
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(content.encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                msg = "❌Not Found：路径错误！！！\n\n查看节点信息路径：/你的uuid（已设uuid变量时）或者/subuuid（未设uuid变量时）"
+                self.wfile.write(msg.encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            msg = "❌Not Found：路径错误！！！\n\n查看节点信息路径：/你的uuid（已设uuid变量时）或者/subuuid（未设uuid变量时）"
+            self.wfile.write(msg.encode("utf-8"))
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_http_server(port: int, domain: str, uuid_val: str) -> None:
+    vless_url = ""
+    if domain:
+        vless_url = f"vless://{uuid_val}@{domain}:443?path=/{uuid_val}-vl&security=tls&encryption=none&host={domain}&type=ws&sni={domain}#vless-ws-tls"
+
+    class CustomHandler(NodeRequestHandler):
+        pass
+
+    CustomHandler.server = type('Server', (), {'vless_url': vless_url})()
+
+    try:
+        server = HTTPServer(("0.0.0.0", port), CustomHandler)
+        print(f"✅ HTTP 服务器已启动在端口 {port}")
+        if vless_url:
+            print(f"💣Vless-ws-tls节点分享:\n{vless_url}")
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+    except Exception as e:
+        print(f"⚠️ HTTP 服务器启动失败: {e}")
 
 
 def show_links() -> None:
